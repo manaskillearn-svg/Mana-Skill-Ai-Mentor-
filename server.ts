@@ -14,38 +14,38 @@ const __dirname = path.dirname(__filename);
 
 const db = new Database("mana_skill.db");
 
-// Initialize database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE,
-    password TEXT,
-    profile TEXT,
-    roadmap TEXT,
-    role TEXT DEFAULT 'user'
-  );
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT
-  );
-`);
+async function startServer() {
+  // Initialize database
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE,
+      password TEXT,
+      profile TEXT,
+      roadmap TEXT,
+      role TEXT DEFAULT 'user'
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+  `);
 
-// Migration: Add role column if it doesn't exist
-try {
-  const tableInfo = db.prepare("PRAGMA table_info(users)").all() as any[];
-  const hasRole = tableInfo.some(col => col.name === 'role');
-  if (!hasRole) {
-    db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
-    console.log("Migration: Added 'role' column to users table");
+  // Migration: Add role column if it doesn't exist
+  try {
+    const tableInfo = db.prepare("PRAGMA table_info(users)").all() as any[];
+    const hasRole = tableInfo.some(col => col.name === 'role');
+    if (!hasRole) {
+      db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
+      console.log("Migration: Added 'role' column to users table");
+    }
+  } catch (err) {
+    console.error("Migration error:", err);
   }
-} catch (err) {
-  console.error("Migration error:", err);
-}
 
-// Create default admin if not exists
-const createAdmin = async () => {
+  // Create default admin if not exists
   const adminEmail = "admin@manaskill.com";
-  const adminPassword = "adminpassword123"; // In a real app, this should be in .env
+  const adminPassword = "adminpassword123";
   const existingAdmin = db.prepare("SELECT * FROM users WHERE email = ?").get(adminEmail);
   
   if (!existingAdmin) {
@@ -53,10 +53,7 @@ const createAdmin = async () => {
     db.prepare("INSERT INTO users (email, password, role) VALUES (?, ?, ?)").run(adminEmail, hashedPassword, "admin");
     console.log("Default admin created: admin@manaskill.com / adminpassword123");
   }
-};
-createAdmin();
 
-async function startServer() {
   const app = express();
   const PORT = 3000;
 
@@ -226,12 +223,21 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    console.log("Starting Vite in middleware mode...");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        watch: {
+          usePolling: true,
+          interval: 100,
+        }
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
+    console.log("Vite middleware attached.");
   } else {
+    console.log("Serving static files from dist...");
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
       res.sendFile(path.join(__dirname, "dist", "index.html"));
@@ -240,7 +246,11 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
-startServer();
+console.log("Initializing server...");
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+});
